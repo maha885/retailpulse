@@ -1,5 +1,3 @@
-version: "3.8"
-
 # RetailPulse — fully local, zero-cost data engineering stack
 # MinIO   = S3-compatible object storage (bronze/silver layers)
 # Postgres = curated warehouse (gold layer) + Airflow metadata DB
@@ -9,6 +7,9 @@ version: "3.8"
 services:
 
   # --- Object storage (S3-compatible) ---
+  # NOTE: MinIO Inc. archived the official minio/minio Docker Hub repo in early 2026 and
+  # stopped publishing new images. quay.io still hosts their last published release, which
+  # works fine for local/portfolio use (just won't get future security patches).
   minio:
     image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: retailpulse-minio
@@ -16,7 +17,6 @@ services:
       - "9000:9000"   # S3 API
       - "9001:9001"   # Web console
     environment:
-      MINIO_ENDPOINT: "http://minio:9000"
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     command: server /data --console-address ":9001"
@@ -77,16 +77,42 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW__CORE__EXECUTOR: "LocalExecutor"
       AIRFLOW_HOME: "/opt/airflow"
-      _PIP_ADDITIONAL_REQUIREMENTS: "faker==25.8.0 boto3==1.34.144 pandas==2.2.2"
+      # Airflow's own metadata DB (separate from the retailpulse warehouse)
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "postgresql+psycopg2://${POSTGRES_USER:-retailpulse}:${POSTGRES_PASSWORD:-retailpulse}@postgres/${POSTGRES_DB:-retailpulse}"
+      # Installs these inside the container on startup so DAG tasks (which run
+      # in-container, not on your host machine) can import them. Fine for local
+      # dev; for a "real" setup you'd build a custom image with a Dockerfile instead.
+      _PIP_ADDITIONAL_REQUIREMENTS: "faker==25.8.0 boto3==1.34.144 pandas pyarrow==16.1.0 s3fs==2024.6.1 psycopg2-binary==2.9.9 dbt-core==1.8.3 dbt-postgres==1.8.2"
+      # NOTE: not pinning pandas or sqlalchemy versions here anymore. The loader
+      # script (load_silver_to_postgres.py) only uses pandas.read_parquet() plus
+      # raw psycopg2 + COPY for the Postgres write -- it never touches
+      # pandas.to_sql() or SQLAlchemy at all, which sidesteps a confirmed pandas
+      # bug (pandas-dev/pandas#57049) where pandas >=2.2 breaks against the
+      # SQLAlchemy 1.4.x that Airflow itself requires internally. Since nothing
+      # here needs SQLAlchemy anymore, we just let Airflow's own constraints file
+      # resolve pandas/sqlalchemy versions however it wants.
+      # Inside Docker's network, containers reach each other by service name, not
+      # localhost. "minio" here resolves to the minio container automatically.
       MINIO_ENDPOINT: "http://minio:9000"
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
-      # Airflow's own metadata DB (separate from the retailpulse warehouse)
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "postgresql+psycopg2://${POSTGRES_USER:-retailpulse}:${POSTGRES_PASSWORD:-retailpulse}@postgres/${POSTGRES_DB:-retailpulse}"
+      # Same idea for Postgres: "postgres" is the service name, not localhost.
+      # NOTE: this reuses the same Postgres instance/database as Airflow's own
+      # metadata (simplification for a local project) -- dbt writes into the
+      # "gold" schema so it never collides with Airflow's own tables, which
+      # live in the default "public" schema.
+      POSTGRES_HOST: "postgres"
+      POSTGRES_USER: ${POSTGRES_USER:-retailpulse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-retailpulse}
+      POSTGRES_DB: ${POSTGRES_DB:-retailpulse}
+      # Tells dbt to look for profiles.yml inside our project folder instead of
+      # the default ~/.dbt/profiles.yml location.
+      DBT_PROFILES_DIR: "/opt/airflow/dbt"
     volumes:
       - ./dags:/opt/airflow/dags
       - ./ingestion:/opt/airflow/ingestion
       - ./great_expectations:/opt/airflow/great_expectations
+      - ./dbt:/opt/airflow/dbt
     command: >
       bash -c "airflow db migrate &&
                airflow users create --username admin --password admin --firstname Deba --lastname Moharana --role Admin --email admin@example.com || true &&

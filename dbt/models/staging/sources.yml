@@ -1,0 +1,31 @@
+version: 2
+
+sources:
+  - name: staging_raw
+    schema: staging
+    tables:
+      - name: raw_orders
+        description: >
+          Cleaned order-level Parquet data loaded from MinIO's silver bucket
+          (output of the Spark transform job).
+        columns:
+          - name: order_id
+            tests:
+              - unique
+              - not_null
+          - name: customer_id
+            tests:
+              - not_null
+
+      - name: raw_dim_customer
+        description: >
+          SCD Type 2 customer dimension loaded from MinIO's silver bucket
+          (output of the Spark transform job).
+        columns:
+          - name: customer_sk
+            tests:
+              - unique
+              - not_null
+          - name: customer_id
+            tests:
+              - not_null

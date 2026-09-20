@@ -2,6 +2,10 @@
 pandas==2.2.2
 faker==25.8.0
 boto3==1.34.144        # S3-compatible client, works with MinIO
+pyarrow==16.1.0         # Parquet read/write
+s3fs==2024.6.1          # lets pandas read Parquet directly from MinIO via s3:// paths
+sqlalchemy==2.0.31
+psycopg2-binary==2.9.9  # Postgres driver
 
 # Transform
 pyspark==3.5.1

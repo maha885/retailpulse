@@ -1,0 +1,29 @@
+name: 'retailpulse'
+version: '1.0.0'
+config-version: 2
+
+profile: 'retailpulse'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  retailpulse:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table
+# NOTE: not setting a custom +schema per layer on purpose. dbt's default behavior
+# concatenates a custom schema onto the target schema (e.g. target "gold" + custom
+# "staging" -> literal schema "gold_staging"), which is confusing for a small
+# project. Everything lands in the single target schema ("gold", set in
+# profiles.yml) instead, and staging vs. marts is distinguished by directory +
+# materialization (view vs. table) rather than by schema.

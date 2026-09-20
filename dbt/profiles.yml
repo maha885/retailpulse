@@ -1,0 +1,19 @@
+# dbt reads connection profiles from here. By default dbt looks in ~/.dbt/profiles.yml,
+# but we point DBT_PROFILES_DIR at this project folder instead (set as an env var
+# wherever dbt runs — see README) so the whole project is self-contained.
+#
+# All connection details come from environment variables, matching the same
+# credentials used by docker-compose / .env — nothing is hardcoded here.
+
+retailpulse:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('POSTGRES_HOST', 'localhost') }}"
+      user: "{{ env_var('POSTGRES_USER', 'retailpulse') }}"
+      password: "{{ env_var('POSTGRES_PASSWORD', 'retailpulse') }}"
+      port: 5432
+      dbname: "{{ env_var('POSTGRES_DB', 'retailpulse') }}"
+      schema: gold
+      threads: 4

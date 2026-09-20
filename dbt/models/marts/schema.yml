@@ -1,0 +1,36 @@
+version: 2
+
+models:
+  - name: dim_customer
+    description: SCD Type 2 customer dimension (gold layer).
+    columns:
+      - name: customer_sk
+        tests:
+          - unique
+          - not_null
+      - name: customer_id
+        tests:
+          - not_null
+
+  - name: fct_orders
+    description: >
+      One row per order, joined to the customer dimension via a point-in-time
+      SCD Type 2 join (customer attributes reflect their state at order time,
+      not their current state).
+    columns:
+      - name: order_id
+        tests:
+          - unique
+          - not_null
+      - name: customer_sk
+        tests:
+          - relationships:
+              to: ref('dim_customer')
+              field: customer_sk
+
+  - name: daily_sales_summary
+    description: Pre-aggregated daily revenue and order counts by product category.
+    columns:
+      - name: order_date
+        tests:
+          - not_null
