@@ -65,6 +65,11 @@ with DAG(
         ),
     )
 
+    dbt_deps = BashOperator(
+        task_id="dbt_deps",
+        bash_command="cd /opt/airflow/dbt && dbt deps",
+    )
+
     dbt_run = BashOperator(
         task_id="dbt_run_staging_to_gold",
         bash_command="cd /opt/airflow/dbt && dbt run",
@@ -81,4 +86,4 @@ with DAG(
     #     bash_command="great_expectations checkpoint run gold_layer_checkpoint",
     # )
 
-    generate_data >> land_to_minio >> load_silver_to_postgres >> dbt_run >> dbt_test
+    generate_data >> land_to_minio >> load_silver_to_postgres >> dbt_deps >> dbt_run >> dbt_test

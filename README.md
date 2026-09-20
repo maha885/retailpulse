@@ -84,9 +84,42 @@ retailpulse/
 ## Roadmap
 
 - [x] **Week 1** — Docker infra, MinIO buckets, synthetic data generator, Airflow DAG landing raw data
-- [ ] **Week 2** — PySpark transform job (raw → silver), SCD Type 2 dimension
-- [ ] **Week 3** — dbt-core project (silver → gold in Postgres), Airflow DAG extended
-- [ ] **Week 4** — Great Expectations checkpoints, Metabase dashboards, final README polish
+- [x] **Week 2** — PySpark transform job (raw → silver), SCD Type 2 dimension
+- [x] **Week 3** — dbt-core project (silver → gold in Postgres) with a point-in-time SCD2 join, Airflow DAG extended end-to-end
+- [x] **Week 4** — Data quality tests via `dbt-expectations`, Metabase dashboards
+
+### A design decision worth knowing: dbt-expectations instead of Great Expectations
+
+The original plan called for standalone Great Expectations. In practice, GX pulls in
+its own pandas/SQLAlchemy/jsonschema dependency chain, and this project already hit
+real version conflicts between Airflow, pandas, and SQLAlchemy while building Week 3
+(documented in `docker-compose.yml`'s comments). Adding another heavy Python
+dependency into the same Airflow container risked reopening that exact class of
+problem for marginal benefit.
+
+Instead, this project uses **`dbt-expectations`** (see `dbt/packages.yml`) — a dbt
+package that ports most of Great Expectations' test vocabulary (value ranges, set
+membership, row-count sanity checks) directly into dbt's own SQL-based test
+framework. It needs no new Python packages in Airflow at all, and is a common,
+production-legitimate choice in dbt-centric stacks. See `dbt/models/marts/schema.yml`
+for the tests in use (row-count checks, value ranges on `quantity`/`unit_price`/
+`total_amount`, accepted values on `order_status`).
+
+Standalone Great Expectations remains a reasonable stretch goal if you want to add it
+later — the empty `great_expectations/` folder is left in place for that.
+
+## Metabase dashboards
+
+Metabase runs at http://localhost:3000. First-time setup:
+
+1. Create an admin account (local only, not sent anywhere).
+2. When asked to connect a database, choose **PostgreSQL** and enter:
+   - Host: `postgres` (if adding the connection from within a Metabase container context) — from the setup wizard in your browser, Metabase actually talks to Postgres via Docker's internal network, so use `postgres` as the host, port `5432`, database `retailpulse`, and the credentials from your `.env` file.
+3. Once connected, browse to the `gold` schema — you'll see `fct_orders`, `dim_customer`, and `daily_sales_summary`.
+4. Build 2-3 questions/charts against `daily_sales_summary`: e.g. a line chart of `total_revenue` over `order_date`, a bar chart of `total_orders` by `product_category`. Pin them to a dashboard.
+
+This is the same BI layer pattern as Power BI/Looker sitting on top of a warehouse —
+just self-hosted and free.
 
 ## Local development tips (Windows / PowerShell / Git Bash)
 

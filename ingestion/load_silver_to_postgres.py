@@ -79,7 +79,7 @@ def load_dataframe(df: pd.DataFrame, table_name: str, schema: str, conn) -> None
             for col, dtype in df.dtypes.items()
         )
 
-        cur.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(full_table))
+        cur.execute(sql.SQL("DROP TABLE IF EXISTS {} CASCADE").format(full_table))
         cur.execute(
             sql.SQL("CREATE TABLE {} ({})").format(full_table, columns_sql)
         )

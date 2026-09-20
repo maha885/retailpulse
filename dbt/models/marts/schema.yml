@@ -17,6 +17,11 @@ models:
       One row per order, joined to the customer dimension via a point-in-time
       SCD Type 2 join (customer attributes reflect their state at order time,
       not their current state).
+    tests:
+      # Row-count sanity check: catches a broken/empty load before anyone
+      # discovers it via a blank dashboard instead of a failed pipeline.
+      - dbt_expectations.expect_table_row_count_to_be_between:
+          min_value: 1
     columns:
       - name: order_id
         tests:
@@ -27,6 +32,25 @@ models:
           - relationships:
               to: ref('dim_customer')
               field: customer_sk
+      - name: quantity
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 1
+              strictly: false
+      - name: unit_price
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              strictly: true
+      - name: total_amount
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              strictly: true
+      - name: order_status
+        tests:
+          - accepted_values:
+              values: ['placed', 'shipped', 'delivered', 'cancelled', 'returned']
 
   - name: daily_sales_summary
     description: Pre-aggregated daily revenue and order counts by product category.
@@ -34,3 +58,8 @@ models:
       - name: order_date
         tests:
           - not_null
+      - name: total_revenue
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              strictly: false
