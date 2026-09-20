@@ -5,6 +5,8 @@ no cloud subscription required. Designed as a resume-ready portfolio project tha
 mirrors a production medallion architecture (bronze/silver/gold) with orchestration,
 transformation, modeling, and data quality gates.
 
+![RetailPulse dashboard](docs/dashboard.png)
+
 ## Architecture
 
 ```
