@@ -1,0 +1,107 @@
+version: "3.8"
+
+# RetailPulse — fully local, zero-cost data engineering stack
+# MinIO   = S3-compatible object storage (bronze/silver layers)
+# Postgres = curated warehouse (gold layer) + Airflow metadata DB
+# Airflow  = orchestration (replaces ADF/Autosys)
+# Metabase = BI dashboard on top of the gold layer
+
+services:
+
+  # --- Object storage (S3-compatible) ---
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: retailpulse-minio
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web console
+    environment:
+      MINIO_ENDPOINT: "http://minio:9000"
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # One-shot job: auto-creates raw/silver/gold buckets on first startup
+  createbuckets:
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    container_name: retailpulse-createbuckets
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin};
+      mc mb -p local/raw;
+      mc mb -p local/silver;
+      mc mb -p local/gold;
+      exit 0;
+      "
+
+  # --- Curated warehouse (gold layer) ---
+  postgres:
+    image: postgres:15
+    container_name: retailpulse-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-retailpulse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-retailpulse}
+      POSTGRES_DB: ${POSTGRES_DB:-retailpulse}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-retailpulse}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --- Orchestration (replaces ADF / Autosys) ---
+  airflow:
+    image: apache/airflow:2.9.3
+    container_name: retailpulse-airflow
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__EXECUTOR: "LocalExecutor"
+      AIRFLOW_HOME: "/opt/airflow"
+      _PIP_ADDITIONAL_REQUIREMENTS: "faker==25.8.0 boto3==1.34.144 pandas==2.2.2"
+      MINIO_ENDPOINT: "http://minio:9000"
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      # Airflow's own metadata DB (separate from the retailpulse warehouse)
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "postgresql+psycopg2://${POSTGRES_USER:-retailpulse}:${POSTGRES_PASSWORD:-retailpulse}@postgres/${POSTGRES_DB:-retailpulse}"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./ingestion:/opt/airflow/ingestion
+      - ./great_expectations:/opt/airflow/great_expectations
+    command: >
+      bash -c "airflow db migrate &&
+               airflow users create --username admin --password admin --firstname Deba --lastname Moharana --role Admin --email admin@example.com || true &&
+               airflow standalone"
+
+  # --- BI dashboard ---
+  metabase:
+    image: metabase/metabase:latest
+    container_name: retailpulse-metabase
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  minio_data:
+  postgres_data:

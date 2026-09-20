@@ -1,0 +1,11 @@
+.env
+data/
+*.csv
+__pycache__/
+*.pyc
+.venv/
+venv/
+dbt/target/
+dbt/logs/
+great_expectations/uncommitted/
+.DS_Store
