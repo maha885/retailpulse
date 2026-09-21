@@ -2,17 +2,18 @@
 retailpulse_pipeline.py
 Airflow DAG for the RetailPulse local ELT pipeline.
 
-Current scope:
+Full scope, now fully orchestrated end-to-end:
     generate synthetic data -> land in MinIO (raw)
-    -> [run manually for now: Spark transform, raw -> silver -- see spark_jobs/]
+    -> Spark transform, raw -> silver (SCD2 dimension included)
     -> load silver Parquet into Postgres staging tables
-    -> dbt run (staging -> gold marts)
-    -> dbt test (data quality checks on the gold layer)
+    -> dbt deps / dbt run (staging -> gold marts)
+    -> dbt test (data quality checks, incl. dbt-expectations, on the gold layer)
 
-The Spark transform step is NOT in this DAG yet because the official Airflow
-image has no JVM, and installing one needs a custom Dockerfile (a good Week 4+
-follow-up). Everything else here runs fine inside the stock Airflow image since
-dbt-core talks to Postgres directly with no JVM involved.
+The Spark step runs inside a custom Airflow image (see Dockerfile.airflow) that
+bakes in a JRE -- the stock Airflow image has no JVM at all, so spark-submit
+couldn't run in it. Building a custom image also sidestepped a class of pandas/
+SQLAlchemy version conflicts that runtime pip installs (_PIP_ADDITIONAL_REQUIREMENTS)
+had been running into against Airflow's own constraints file.
 """
 
 from datetime import datetime, timedelta
@@ -28,7 +29,7 @@ default_args = {
 
 with DAG(
     dag_id="retailpulse_pipeline",
-    description="End-to-end local ELT pipeline: generate -> land -> load -> model -> test",
+    description="End-to-end local ELT pipeline: generate -> land -> transform -> load -> model -> test",
     default_args=default_args,
     schedule_interval="@daily",
     start_date=datetime(2026, 1, 1),
@@ -52,11 +53,13 @@ with DAG(
         ),
     )
 
-    # --- Placeholder: run manually for now (see spark_jobs/transform_orders.py) ---
-    # spark_transform = BashOperator(
-    #     task_id="spark_transform_raw_to_silver",
-    #     bash_command="spark-submit /opt/airflow/spark_jobs/transform_orders.py --run-date {{ ds }}",
-    # )
+    spark_transform = BashOperator(
+        task_id="spark_transform_raw_to_silver",
+        bash_command=(
+            "spark-submit "
+            "/opt/airflow/spark_jobs/transform_orders.py --run-date {{ ds }}"
+        ),
+    )
 
     load_silver_to_postgres = BashOperator(
         task_id="load_silver_to_postgres",
@@ -80,10 +83,12 @@ with DAG(
         bash_command="cd /opt/airflow/dbt && dbt test",
     )
 
-    # --- Placeholder for Week 4 ---
-    # ge_validate = BashOperator(
-    #     task_id="validate_with_great_expectations",
-    #     bash_command="great_expectations checkpoint run gold_layer_checkpoint",
-    # )
-
-    generate_data >> land_to_minio >> load_silver_to_postgres >> dbt_deps >> dbt_run >> dbt_test
+    (
+        generate_data
+        >> land_to_minio
+        >> spark_transform
+        >> load_silver_to_postgres
+        >> dbt_deps
+        >> dbt_run
+        >> dbt_test
+    )

@@ -1,0 +1,55 @@
+# Custom Airflow image for RetailPulse.
+#
+# The stock apache/airflow image has no JVM, so spark-submit can't run inside
+# it. Since the container is Linux (not Windows), adding Java here is much
+# simpler than the Windows winutils/JAVA_HOME/HADOOP_HOME setup needed to run
+# Spark locally -- a plain JRE install is all that's needed.
+#
+# All Python packages are also installed here at build time instead of via
+# Airflow's runtime _PIP_ADDITIONAL_REQUIREMENTS mechanism. That mechanism
+# installs against Airflow's own constraints file, which silently overrode a
+# pandas version pin earlier in this project -- building our own image sidesteps
+# that entirely, since we control the pip install directly.
+
+FROM apache/airflow:2.9.3
+
+USER root
+
+# Install curl (needed to fetch the S3A connector jars below; not present in
+# the base image by default).
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends openjdk-17-jre-headless curl && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* && \
+    ln -sf "$(dirname "$(dirname "$(readlink -f "$(which java)")")")" /usr/lib/jvm/default-java
+
+ENV JAVA_HOME=/usr/lib/jvm/default-java
+ENV PATH="$JAVA_HOME/bin:$PATH"
+
+USER airflow
+
+RUN pip install --no-cache-dir \
+    pyspark==3.5.1 \
+    faker==25.8.0 \
+    boto3==1.34.144 \
+    pandas \
+    pyarrow==16.1.0 \
+    s3fs==2024.6.1 \
+    psycopg2-binary==2.9.9 \
+    dbt-core==1.8.3 \
+    dbt-postgres==1.8.2
+
+# Download the Hadoop-AWS + AWS-SDK jars (needed for Spark to talk to MinIO
+# via s3a://) straight into PySpark's own jars/ folder at BUILD time, instead
+# of using spark-submit's --packages flag at RUNTIME. --packages resolves
+# dependencies via Ivy, which needs a writable cache directory -- this hit a
+# permission error against a fresh Docker volume mount (new named volumes are
+# created root-owned by default, but tasks run as the non-root airflow user).
+# Baking the jars in at build time sidesteps that entirely: no runtime network
+# fetch, no cache directory, no permission question -- the jars are just
+# already on Spark's classpath every time spark-submit runs.
+RUN PYSPARK_JARS_DIR=$(python -c "import pyspark, os; print(os.path.join(os.path.dirname(pyspark.__file__), 'jars'))") && \
+    curl -fsSL -o "$PYSPARK_JARS_DIR/hadoop-aws-3.3.4.jar" \
+        https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar && \
+    curl -fsSL -o "$PYSPARK_JARS_DIR/aws-java-sdk-bundle-1.12.262.jar" \
+        https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.262/aws-java-sdk-bundle-1.12.262.jar

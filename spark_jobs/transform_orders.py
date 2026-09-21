@@ -182,6 +182,9 @@ def main():
     print("Building SCD Type 2 customer dimension")
     dim_df = build_customer_scd2(spark, clean_df, customer_dim_path)
 
+    dim_df = dim_df.persist()
+    dim_row_count = dim_df.count()
+
     print(f"Writing customer dimension to {customer_dim_path}")
     dim_df.write.mode("overwrite").parquet(customer_dim_path)
 

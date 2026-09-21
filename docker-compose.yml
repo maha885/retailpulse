@@ -64,7 +64,9 @@ services:
 
   # --- Orchestration (replaces ADF / Autosys) ---
   airflow:
-    image: apache/airflow:2.9.3
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
     container_name: retailpulse-airflow
     depends_on:
       postgres:
@@ -79,18 +81,6 @@ services:
       AIRFLOW_HOME: "/opt/airflow"
       # Airflow's own metadata DB (separate from the retailpulse warehouse)
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "postgresql+psycopg2://${POSTGRES_USER:-retailpulse}:${POSTGRES_PASSWORD:-retailpulse}@postgres/${POSTGRES_DB:-retailpulse}"
-      # Installs these inside the container on startup so DAG tasks (which run
-      # in-container, not on your host machine) can import them. Fine for local
-      # dev; for a "real" setup you'd build a custom image with a Dockerfile instead.
-      _PIP_ADDITIONAL_REQUIREMENTS: "faker==25.8.0 boto3==1.34.144 pandas pyarrow==16.1.0 s3fs==2024.6.1 psycopg2-binary==2.9.9 dbt-core==1.8.3 dbt-postgres==1.8.2"
-      # NOTE: not pinning pandas or sqlalchemy versions here anymore. The loader
-      # script (load_silver_to_postgres.py) only uses pandas.read_parquet() plus
-      # raw psycopg2 + COPY for the Postgres write -- it never touches
-      # pandas.to_sql() or SQLAlchemy at all, which sidesteps a confirmed pandas
-      # bug (pandas-dev/pandas#57049) where pandas >=2.2 breaks against the
-      # SQLAlchemy 1.4.x that Airflow itself requires internally. Since nothing
-      # here needs SQLAlchemy anymore, we just let Airflow's own constraints file
-      # resolve pandas/sqlalchemy versions however it wants.
       # Inside Docker's network, containers reach each other by service name, not
       # localhost. "minio" here resolves to the minio container automatically.
       MINIO_ENDPOINT: "http://minio:9000"
@@ -113,6 +103,7 @@ services:
       - ./ingestion:/opt/airflow/ingestion
       - ./great_expectations:/opt/airflow/great_expectations
       - ./dbt:/opt/airflow/dbt
+      - ./spark_jobs:/opt/airflow/spark_jobs
     command: >
       bash -c "airflow db migrate &&
                airflow users create --username admin --password admin --firstname Deba --lastname Moharana --role Admin --email admin@example.com || true &&
